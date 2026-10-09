@@ -1,0 +1,72 @@
+{
+  "name": "kaneclip",
+  "productName": "KaneClip",
+  "version": "1.0.0",
+  "description": "KaneClip — éditeur vidéo inspiré de Vegas Pro",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64 --publish never",
+    "release": "electron-builder --win --x64 --publish always"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "author": "Kane",
+  "homepage": "https://github.com/Kaynegiordano/KaneClip",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kaynegiordano/KaneClip.git"
+  },
+  "license": "UNLICENSED",
+  "build": {
+    "appId": "com.kane.kaneclip",
+    "productName": "KaneClip",
+    "copyright": "Kane",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "updater.cjs",
+      "media-tools.cjs",
+      "ai-upscale.cjs",
+      "app/**/*",
+      "!app/**/*.map"
+    ],
+    "extraResources": [
+      { "from": "bin", "to": "bin", "filter": ["ffmpeg.exe", "LICENSE-ffmpeg.txt"] }
+    ],
+    "fileAssociations": [
+      { "ext": "kcp", "name": "Projet KaneClip", "description": "Projet KaneClip", "icon": "build/project.ico" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "artifactName": "KaneClip-Setup-${version}.${ext}",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "KaneClip",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "language": "1036"
+    },
+    "publish": [
+      { "provider": "github", "owner": "Kaynegiordano", "repo": "KaneClip", "releaseType": "release" }
+    ]
+  }
+}
