@@ -441,11 +441,13 @@
         if (!KC.sel.has(ht.ev.id)) KC.sel.set(KC.sel.expand([ht.ev]).map(x => x.id));
         T.redraw();
         KC.context(e, eventMenu(ht.ev));
-      } else if (ht) {
-        KC.context(e, emptyMenu(TT(px), ht.row.track));
+      } else {
+        KC.context(e, emptyMenu(TT(px), ht && ht.row.track));
       }
       return;
     }
+    if (T.tool === 'time') return startTimeSelect(e, px);
+    if (Math.abs(px - X(E.time)) <= 6 && !e.ctrlKey && !e.altKey && !e.shiftKey) return startScrub(e, cv);
     if (!ht || ht.zone === 'empty') {
       if (ht) KC.sel.track = ht.row.track.id;
       if (T.tool === 'select' || (e.ctrlKey && e.shiftKey)) return startBand(e, px, py);
@@ -496,6 +498,8 @@
     const pts = snapPoints(new Set());
     const s0 = snapTime(t0, pts, e).t;
     let moved = false;
+    E.pause();
+    E.seek(s0);
     U.drag(e, (dx, dy, ev) => {
       if (!moved && Math.abs(dx) < 3) return;
       moved = true;
@@ -503,6 +507,7 @@
       const sn = snapTime(TT(ev.clientX - r.left), pts, ev);
       T.snapLine = sn.line;
       KC.project.loop = { in: Math.max(0, Math.min(s0, sn.t)), out: Math.max(s0, sn.t) };
+      E.seek(sn.t);
       KC.emit('loop'); T.redraw();
     }, () => {
       T.snapLine = null;
@@ -725,7 +730,7 @@
     const ht = hit(e.clientX - r.left, e.clientY - r.top);
     const prev = T.hover && T.hover.ev;
     T.hover = ht && ht.ev ? ht : null;
-    cv.style.cursor = ht ? (CURSORS[ht.zone] || 'default') : 'default';
+    cv.style.cursor = T.tool === 'time' ? 'crosshair' : Math.abs(e.clientX - r.left - X(E.time)) <= 6 ? 'ew-resize' : ht ? (CURSORS[ht.zone] || 'default') : 'default';
     if (ht && ht.zone === 'empty' && T.tool === 'select') cv.style.cursor = 'crosshair';
     if ((T.hover && T.hover.ev) !== prev) T.redraw();
   }
@@ -738,6 +743,7 @@
       const mk = markerAt(px, py);
       if (mk) { KC.context(e, markerMenu(mk)); return; }
       KC.context(e, [
+        ...addTrackMenu(), '-',
         { label: 'Insérer un marqueur ici', icon: 'marker', action: () => KC.edit('Ajouter un marqueur', () => P.addMarker(TT(px))) },
         { label: 'Effacer la sélection temporelle', action: () => { KC.project.loop = { in: 0, out: 0 }; KC.emit('loop'); T.redraw(); } },
         '-',
@@ -779,11 +785,17 @@
       }
     }
     // règle : positionner le curseur et faire défiler
-    const wasPlaying = E.playing;
-    const seekAt = ev => { E.seek(snapTime(TT(ev.clientX - r.left), snapPoints(new Set()), ev).t); };
-    seekAt(e);
-    U.drag(e, (dx, dy, ev) => seekAt(ev), () => { if (wasPlaying && !E.playing) E.play(); });
+    startScrub(e, rcv);
   }
+  function startScrub(e, surface) {
+    const r = surface.getBoundingClientRect();
+    const wasPlaying = E.playing;
+    E.pause();
+    const seekAt = ev => E.seek(Math.max(0, TT(ev.clientX - r.left)));
+    seekAt(e);
+    U.drag(e, (dx, dy, ev) => seekAt(ev), () => { if (wasPlaying) E.play(); });
+  }
+
   function markerAt(px, py) {
     if (py < RULER_LOOP || py > RULER_LOOP + RULER_MARK) return null;
     rcx.font = '600 10px Outfit, Segoe UI, sans-serif';
@@ -809,6 +821,12 @@
   function setTimeFormat(f) { KC.prefs.timeFormat = f; KC.prefs.save(); KC.emit('time-format'); T.redraw(); updateClock(); }
 
   /* ============================================================ menus contextuels */
+  function addTrackMenu() {
+    return [
+      { label: 'Insérer une piste vidéo', icon: 'video', key: 'Ctrl+Maj+Q', action: KC.cmd.addVideoTrack },
+      { label: 'Insérer une piste audio', icon: 'audio', key: 'Ctrl+Q', action: KC.cmd.addAudioTrack },
+    ];
+  }
   function eventMenu(ev) {
     const isV = P.kindOf(ev) === 'video';
     const m = ev.media ? P.media(ev.media) : null;
@@ -817,6 +835,9 @@
     const colorsSub = [{ label: 'Couleur de la piste', checked: !ev.color, action: () => KC.edit('Couleur', () => sel.forEach(s => { s.color = null; })) },
       ...P.TRACK_COLORS.map((c, i) => ({ label: ['Rouge', 'Orange', 'Jaune', 'Vert', 'Cyan', 'Bleu', 'Violet', 'Rose', 'Gris'][i], checked: ev.color === c, action: () => KC.edit('Couleur', () => sel.forEach(s => { s.color = c; })) }))];
     return [
+      ...addTrackMenu(), '-',
+      { label: 'Lire cet événement en boucle', icon: 'loop', action: () => { KC.project.loop = { in: ev.start, out: ev.start + ev.length }; KC.emit('loop'); KC.cmd.playSelection(); } },
+      '-',
       { label: 'Couper', icon: 'cut', key: 'Ctrl+X', action: KC.cmd.cut },
       { label: 'Copier', icon: 'copy', key: 'Ctrl+C', action: KC.cmd.copy },
       { label: 'Supprimer', icon: 'trash', key: 'Suppr', action: KC.cmd.deleteSel },
@@ -852,12 +873,11 @@
   function emptyMenu(t, track) {
     return [
       { label: 'Coller ici', icon: 'paste', key: 'Ctrl+V', disabled: !KC.clipboard, action: () => { E.seek(P.snapFrame(t)); KC.cmd.paste(track); } },
-      { label: 'Insérer un texte ici', icon: 'text', action: () => KC.cmd.insertGenerator('text', t, track.kind === 'video' ? track.id : null) },
-      { label: 'Insérer une couleur unie ici', icon: 'solid', action: () => KC.cmd.insertGenerator('solid', t, track.kind === 'video' ? track.id : null) },
+      { label: 'Insérer un texte ici', icon: 'text', action: () => KC.cmd.insertGenerator('text', t, track?.kind === 'video' ? track.id : null) },
+      { label: 'Insérer une couleur unie ici', icon: 'solid', action: () => KC.cmd.insertGenerator('solid', t, track?.kind === 'video' ? track.id : null) },
       { label: 'Insérer un marqueur ici', icon: 'marker', action: () => KC.edit('Ajouter un marqueur', () => P.addMarker(t)) },
       '-',
-      { label: 'Insérer une piste vidéo', key: 'Ctrl+Maj+Q', action: KC.cmd.addVideoTrack },
-      { label: 'Insérer une piste audio', key: 'Ctrl+Q', action: KC.cmd.addAudioTrack },
+      ...addTrackMenu(),
       '-',
       { label: 'Tout sélectionner', key: 'Ctrl+A', action: KC.cmd.selectAll },
     ];
@@ -1142,6 +1162,7 @@
       inp.addEventListener('blur', () => done(false));
     });
     c.addEventListener('contextmenu', e => KC.context(e, [
+      ...addTrackMenu(), '-',
       { label: 'Temps et images (SMPTE)', checked: KC.prefs.timeFormat === 'smpte', action: () => setTimeFormat('smpte') },
       { label: 'Heures, minutes, secondes', checked: KC.prefs.timeFormat === 'sec', action: () => setTimeFormat('sec') },
       { label: 'Images', checked: KC.prefs.timeFormat === 'frames', action: () => setTimeFormat('frames') },
@@ -1150,21 +1171,60 @@
   function buildTransport() {
     const tp = KC.$('#transport');
     tp.innerHTML = '';
-    const b = (icon, title, fn, id) => { const x = h('button.tb', { title, html: KC.icon(icon) }); if (id) x.id = id; x.addEventListener('click', fn); tp.appendChild(x); return x; };
-    b('loop', 'Lecture en boucle (Q)', () => KC.cmd.toggleLoop(), 'tp-loop');
-    b('play-start', 'Lire depuis le début (Maj+F12)', () => E.play(0));
-    b('play', 'Lire (Espace)', () => E.play(), 'tp-play');
-    b('pause', 'Pause (Entrée)', () => E.pause());
-    b('stop', 'Arrêt (Échap)', () => E.stop());
-    b('to-start', 'Aller au début (Ctrl+Origine)', () => E.seek(0));
-    b('to-end', 'Aller à la fin (Ctrl+Fin)', () => E.seek(P.duration()));
+    const b = (icon, title, fn, id, label) => {
+      const x = h('button.tb' + (label ? '.transport-label' : ''), { title, 'aria-label': title, html: KC.icon(icon) });
+      if (label) x.append(h('span', { text: label }));
+      if (id) x.id = id;
+      x.addEventListener('click', fn); tp.appendChild(x); return x;
+    };
+    const sep = () => tp.append(h('span.transport-sep', { 'aria-hidden': 'true' }));
+    b('to-start', 'Aller au début', () => E.seek(0));
     b('prev-frame', 'Image précédente (←)', () => E.step(-1));
+    b('play', 'Lire / pause (Entrée)', () => E.togglePause(), 'tp-play', 'Lire');
+    b('stop', 'Arrêt et retour au départ (Échap)', () => E.stop());
     b('next-frame', 'Image suivante (→)', () => E.step(1));
+    b('to-end', 'Aller à la fin', () => E.seek(P.duration()));
+    const seek = h('input#tp-seek', { type: 'range', min: 0, max: P.duration(), step: P.frame(), value: E.time, 'aria-label': 'Position de lecture', title: 'Glisser pour parcourir la vidéo' });
+    let resume = false;
+    seek.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      resume = E.playing; E.pause();
+      U.drag(e, null, () => { if (resume) E.play(); resume = false; });
+    });
+    seek.addEventListener('input', () => E.seek(Number(seek.value)));
+    tp.append(seek, h('span#tp-time'));
+    sep();
+    const speed = h('select#tp-speed', { 'aria-label': 'Vitesse de lecture', title: 'Vitesse de lecture' }, [0.25, 0.5, 1, 1.5, 2].map(v => h('option', { value: v, text: v + '×', selected: v === 1 })));
+    speed.addEventListener('change', () => E.setRate(Number(speed.value)));
+    tp.append(speed);
+    b('audio', 'Activer / couper le son de l’aperçu', () => { E.masterMute = !E.masterMute; updateTransport(); }, 'tp-mute');
+    sep();
+    b('region', 'Sélection temporelle : glisser sur la timeline, même sur un clip', () => { T.tool = T.tool === 'time' ? 'edit' : 'time'; updateTransport(); T.redraw(); }, 'tp-region', 'Sélection');
+    b('to-start', 'Définir le début de sélection (I)', () => KC.cmd.markIn(), null, 'I');
+    b('to-end', 'Définir la fin de sélection (O)', () => KC.cmd.markOut(), null, 'O');
+    b('loop', 'Activer / désactiver la boucle (Q)', () => KC.cmd.toggleLoop(), 'tp-loop');
+    b('play', 'Lire la sélection en boucle', () => KC.cmd.playSelection(), 'tp-selection', 'Lire la sélection');
+    b('reset', 'Effacer la sélection temporelle', () => { KC.project.loop = { in: 0, out: 0 }; KC.emit('loop'); }, 'tp-clear');
+    tp.append(h('span#tp-region-info'));
     updateTransport();
   }
   function updateTransport() {
-    const l = KC.$('#tp-loop'); if (l) l.classList.toggle('on', !!KC.prefs.loop);
-    const p = KC.$('#tp-play'); if (p) p.classList.toggle('on', E.playing);
+    const lp = KC.project.loop, hasLoop = lp.out > lp.in;
+    for (const [id, on] of [['tp-loop', KC.prefs.loop], ['tp-region', T.tool === 'time'], ['tp-mute', E.masterMute]]) {
+      const el = KC.$('#' + id); if (el) { el.classList.toggle('on', !!on); el.setAttribute('aria-pressed', String(!!on)); }
+    }
+    const p = KC.$('#tp-play');
+    if (p) { p.innerHTML = KC.icon(E.playing ? 'pause' : 'play'); p.append(h('span', { text: E.playing ? 'Pause' : 'Lire' })); p.setAttribute('aria-pressed', String(E.playing)); }
+    for (const id of ['tp-selection', 'tp-clear']) { const el = KC.$('#' + id); if (el) el.disabled = !hasLoop; }
+    const info = KC.$('#tp-region-info');
+    if (info) info.textContent = hasLoop ? 'Sélection : ' + U.fmtTime(lp.in, P.fps()) + ' → ' + U.fmtTime(lp.out, P.fps()) + ' · Durée ' + U.fmtTime(lp.out - lp.in, P.fps()) : 'Sélection : activez « Sélection » puis glissez sur la timeline, ou utilisez I et O.';
+    const speed = KC.$('#tp-speed'); if (speed) speed.value = String(E.rate);
+    updatePosition();
+  }
+  function updatePosition() {
+    const seek = KC.$('#tp-seek');
+    if (seek) { seek.max = Math.max(P.duration(), E.time); seek.step = P.frame(); seek.value = E.time; }
+    const time = KC.$('#tp-time'); if (time) time.textContent = U.fmtTime(E.time, P.fps()) + ' / ' + U.fmtTime(P.duration(), P.fps());
   }
   function buildZoom() {
     const z = KC.$('#tl-zoom');
@@ -1206,7 +1266,7 @@
     if (!KC.project) return;
     if (E.time !== lastTime) {
       lastTime = E.time;
-      updateClock();
+      updateClock(); updatePosition();
       if (E.playing && KC.prefs.followCursor) T.ensureVisible(E.time);
     }
     if (T.dirty) { T.dirty = false; draw(true); lastDrawn = E.time; }
@@ -1240,13 +1300,20 @@
     KC.on('change', () => { buildHeaders(); updateEmpty(); T.redraw(); updateClock(); });
     KC.on('project-loaded', () => { buildHeaders(); updateEmpty(); syncScroll(); T.redraw(); updateClock(); });
     KC.on('selection', () => T.redraw());
-    KC.on('loop', () => T.redraw());
+    KC.on('loop', () => { updateTransport(); T.redraw(); });
     KC.on('play-state', updateTransport);
     KC.on('prefs', () => { updateTransport(); T.redraw(); });
     KC.on('media-updated', () => T.redraw());
     KC.on('redraw-timeline', () => T.redraw());
     KC.on('theme', () => T.refreshColors());
-    KC.on('settings', () => { updateClock(); T.redraw(); });
+    KC.on('settings', () => { updateClock(); updateTransport(); T.redraw(); });
+    KC.on('rate', updateTransport);
+    KC.$('#timeline').addEventListener('contextmenu', e => {
+      if (e.defaultPrevented) return;
+      KC.context(e, addTrackMenu());
+    });
+    KC.on('change', updateTransport);
+    KC.on('project-loaded', updateTransport);
     requestAnimationFrame(frame);
   };
   function updateEmpty() {
@@ -1325,6 +1392,11 @@
   C.addAudioTrack = () => KC.edit('Insérer une piste audio', () => { const t = P.newTrack('audio'); KC.sel.track = t.id; });
   C.deleteTrack = () => { const tr = KC.sel.track && P.track(KC.sel.track); if (!tr) { KC.toast('Sélectionnez une piste', 'info'); return; } KC.edit('Supprimer la piste', () => P.removeTrack(tr.id)); };
   C.addMarker = () => KC.edit('Ajouter un marqueur', () => P.addMarker(E.time));
+  C.playSelection = () => {
+    if (KC.project.loop.out <= KC.project.loop.in) return;
+    KC.prefs.loop = true; KC.prefs.save(); KC.emit('prefs');
+    E.play(KC.project.loop.in);
+  };
   C.toggleLoop = () => { KC.prefs.loop = !KC.prefs.loop; KC.prefs.save(); KC.emit('prefs'); T.redraw(); };
   // Événement qui précède `ev` bout à bout sur la même piste (fin = début de ev, à une image près)
   const adjacentBefore = (ev) => {
