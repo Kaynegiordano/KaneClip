@@ -34,3 +34,13 @@ Publier une version : augmenter `version` dans `package.json`, mettre à jour `R
 ## Licences
 
 ffmpeg est distribué sous licence GPL (voir `LICENSE-ffmpeg.txt` dans le dossier d'installation). Real-ESRGAN (BSD-3) est téléchargé séparément à la demande. Police Outfit sous licence OFL.
+
+## Lecture et sélection temporelle
+
+La barre au-dessus de la timeline propose lecture/pause, arrêt avec retour au départ, début/fin du projet, image précédente/suivante, position de lecture, vitesse et son de l’aperçu.
+
+- Clic droit sur un clip, une zone vide, les en-têtes ou la règle : insérer une piste vidéo ou audio.
+- Activer **Sélection**, puis glisser sur la timeline (y compris sur un clip), ou définir les bornes avec **I** et **O**. Cliquer **Lire la sélection** pour la répéter en boucle. **Q** active/désactive la boucle ; la flèche circulaire efface la sélection.
+- Glisser le curseur dans la règle, saisir la ligne de lecture dans la timeline, ou glisser la barre de position pour voir les images correspondantes. La lecture reprend après relâchement si elle était en cours.
+
+Vérification fonctionnelle : installer Playwright (`npm install --no-save playwright`, puis `npx playwright install chromium`) et exécuter `node tests/playback.cjs`. Le test utilise un navigateur isolé et une vidéo synthétique pour vérifier les menus, la sélection, la boucle et le décodage après plusieurs recherches rapides. `KANECLIP_TEST_BROWSER` peut désigner un exécutable Chromium existant.

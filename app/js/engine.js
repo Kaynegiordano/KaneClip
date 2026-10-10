@@ -3,7 +3,7 @@
 'use strict';
 (() => {
   const U = KC.util, P = KC.P, FX = KC.FX, M = KC.media;
-  const E = KC.engine = { time: 0, playing: false, rate: 1, startTime: 0, needsDraw: true, levels: { L: 0, R: 0, peakL: 0, peakR: 0, clip: false }, masterMute: false };
+  const E = KC.engine = { time: 0, playing: false, rate: 1, playbackRate: 1, startTime: 0, needsDraw: true, levels: { L: 0, R: 0, peakL: 0, peakR: 0, clip: false }, masterMute: false };
 
   /* ------------------------------------------------------------ audio */
   let ac = null, master = null, analL = null, analR = null;
@@ -72,8 +72,20 @@
     el.playsInline = true;
     el.preservesPitch = true;
     if (kind === 'v') el.muted = true;
-    el.addEventListener('seeked', () => { E.needsDraw = true; });
+    el.addEventListener('seeked', () => {
+      // Si le pointeur a bougé pendant le décodage, chercher la dernière position.
+      const current = KC.project && P.event(ev.id);
+      if (!E.playing && current && slots.get(key)?.el === el && kind === 'v') {
+        const target = E.srcTime(current, U.clamp(E.time, current.start, current.start + current.length - 0.001));
+        if (Math.abs(el.currentTime - target) > 0.5 / P.fps()) el.currentTime = target;
+      }
+      E.needsDraw = true;
+    });
     el.addEventListener('loadeddata', () => { E.needsDraw = true; });
+    if (kind === 'v' && el.requestVideoFrameCallback) {
+      const decoded = () => { E.needsDraw = true; if (slots.get(key)?.el === el) el.requestVideoFrameCallback(decoded); };
+      el.requestVideoFrameCallback(decoded);
+    }
     el.src = url;
     s = { key, kind, el, url, used: performance.now(), mediaId: m.id, hasFrame: false };
     const slot = s;
@@ -267,7 +279,11 @@
       if (m.kind === 'image') { const r = M.get(m); src = r.img; if (!src) return; sw = src.naturalWidth; sh = src.naturalHeight; }
       else {
         const s = slots.get(ev.id + ':v');
-        if (s && s.hasFrame && s.el.videoWidth) {
+        const target = E.srcTime(ev, t);
+        const stale = s && !E.playing && (s.el.seeking || Math.abs(s.el.currentTime - target) > 0.5 / P.fps());
+        const thumb = stale ? M.thumbAt(m, target) : null;
+        if (thumb) { src = thumb; sw = m.width || thumb.naturalWidth; sh = m.height || thumb.naturalHeight; }
+        else if (s && s.hasFrame && s.el.videoWidth) {
           // Pendant une recherche, la vidéo garde sa dernière image : on la dessine (pas de noir)
           src = s.el; sw = s.el.videoWidth; sh = s.el.videoHeight;
         } else {
@@ -314,7 +330,8 @@
       // en attente (recherche en cours) : l'horloge est figée
       let t = E.waiting ? E.time : playT0 + (now - playP0) / 1000 * E.rate;
       const lp = KC.project.loop;
-      if (E.loopOn() && E.startTime < lp.out && t >= lp.out) { t = lp.in; playT0 = t; playP0 = now; E.time = t; E.wait(); }
+      if (E.loopOn() && E.rate > 0 && t >= lp.out) { t = lp.in; playT0 = t; playP0 = now; E.time = t; E.wait(); }
+      if (E.loopOn() && E.rate < 0 && t < lp.in) { t = Math.max(lp.in, lp.out - P.frame()); playT0 = t; playP0 = now; E.time = t; }
       const end = P.duration();
       if (E.rate > 0 && !E.loopOn() && t >= end + 0.25) { t = end; E.pause(); }
       if (t < 0) { t = 0; E.pause(); }
@@ -356,7 +373,7 @@
     if (E.loopOn()) { const lp = KC.project.loop; if (E.time >= lp.out || E.time < lp.in - 1e-6) E.time = lp.in; }
     else if (E.time >= P.duration() - 0.01 && P.duration() > 0) E.time = 0;
     if (!E.playing) E.startTime = E.time;
-    E.rate = 1;
+    E.rate = E.playbackRate;
     playT0 = E.time; playP0 = performance.now();
     E.playing = true;
     E.wait();
@@ -364,6 +381,11 @@
   };
   E.wait = () => { if (!E.waiting) { E.waiting = true; E.waitStart = performance.now(); } };
   E.resume = () => { E.waiting = false; playT0 = E.time; playP0 = performance.now(); };
+  E.setRate = rate => {
+    E.rate = E.playbackRate = U.clamp(rate, 0.25, 2);
+    playT0 = E.time; playP0 = performance.now();
+    KC.emit('rate', E.rate);
+  };
   E.shuttle = (rate) => {
     E.audio(); if (ac.state === 'suspended') ac.resume();
     if (!E.playing) E.startTime = E.time;
@@ -372,7 +394,7 @@
   };
   E.pause = () => {
     if (!E.playing) return;
-    E.playing = false; E.rate = 1; E.waiting = false;
+    E.playing = false; E.rate = E.playbackRate; E.waiting = false;
     E.time = P.snapFrame(E.time);
     for (const s of slots.values()) { try { s.el.pause(); } catch { /* rien */ } if (s.gain) s.gain.gain.value = 0; }
     E.needsDraw = true;

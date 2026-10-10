@@ -312,9 +312,14 @@ body.theme-light #tl-clock .big { color: #2b7a13; }
 #tl-empty b { color: var(--text-2); font-weight: 500; }
 #tl-vscroll { width: 12px; flex: none; position: relative; background: var(--panel-2); border-left: 1px solid var(--border); }
 #tl-foot { height: 34px; flex: none; display: flex; align-items: center; background: var(--panel); border-top: 1px solid var(--border); }
-#transport { width: var(--header-w); flex: none; display: flex; align-items: center; justify-content: center; gap: 0; border-right: 1px solid var(--border); height: 100%; }
-#transport .tb { width: 26px; height: 26px; }
-#transport .tb svg.ic { width: 15px; height: 15px; }
+#transport { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+#transport .tb { width: 30px; height: 30px; flex: none; }
+#transport .transport-label { width: auto; padding: 0 10px; gap: 6px; display: flex; }
+#transport .transport-sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+#tp-seek { flex: 1; min-width: 100px; }
+#tp-time, #tp-region-info { font-family: var(--mono); font-size: 11px; color: var(--text-2); white-space: nowrap; }
+#tp-region-info { flex-basis: 100%; color: var(--muted); }
+#transport select { padding: 3px; }
 #tl-hscroll { flex: 1; height: 12px; margin: 0 8px; position: relative; background: var(--panel-2); border-radius: 6px; }
 .thumb { position: absolute; background: var(--raised); border-radius: 6px; }
 .thumb:hover, .thumb.drag { background: var(--hover); }
