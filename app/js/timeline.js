@@ -5,7 +5,7 @@
   const h = KC.h, U = KC.util, P = KC.P, FX = KC.FX, M = KC.media, E = KC.engine;
   const T = KC.timeline = { tool: 'edit', hover: null, drag: null, ghost: null, snapLine: null, band: null, dirty: true };
   const HEAD = 15;          // hauteur du bandeau d'en-tête d'un événement
-  const RULER_LOOP = 13, RULER_MARK = 15;   // bandes de la règle (sélection, marqueurs)
+  const RULER_LOOP = 28, RULER_MARK = 15;   // bandes de la règle (sélection, marqueurs)
   let cv, cx, rcv, rcx, wrap, headersInner, tip;
   let W = 0, H = 0, RW = 0, RH = 0, dpr = 1;
 
@@ -82,6 +82,15 @@
       const a = X(lp.in), b = X(lp.out);
       x.fillStyle = KC.prefs.loop ? 'rgba(' + colors.accentRgb + ',.75)' : 'rgba(150,160,180,.55)';
       x.fillRect(a, 1, b - a, RULER_LOOP - 2);
+      x.fillStyle = '#d9e8ff';
+      for (const edge of [a, b]) { x.fillRect(edge - 3, 3, 6, RULER_LOOP - 6); }
+      if (b - a > 150) {
+        x.font = '600 11px Outfit, sans-serif'; x.textBaseline = 'middle';
+        x.fillText('Boucle · ' + U.fmtTime(lp.out - lp.in, P.fps()), Math.max(10, a + 12), RULER_LOOP / 2, Math.min(b, RW) - Math.max(10, a + 12) - 12);
+      }
+    } else {
+      x.fillStyle = colors.ink; x.font = '11px Outfit, sans-serif'; x.textBaseline = 'middle';
+      x.fillText('Glissez ici pour sélectionner une boucle', 10, RULER_LOOP / 2);
     }
     // marqueurs
     x.fillStyle = colors.bg; x.fillRect(0, RULER_LOOP, RW, RULER_MARK);
@@ -446,8 +455,8 @@
       }
       return;
     }
-    if (T.tool === 'time') return startTimeSelect(e, px);
     if (Math.abs(px - X(E.time)) <= 6 && !e.ctrlKey && !e.altKey && !e.shiftKey) return startScrub(e, cv);
+    if (T.tool === 'time') return startTimeSelect(e, px);
     if (!ht || ht.zone === 'empty') {
       if (ht) KC.sel.track = ht.row.track.id;
       if (T.tool === 'select' || (e.ctrlKey && e.shiftKey)) return startBand(e, px, py);
@@ -755,22 +764,44 @@
     }
     if (e.button !== 0) return;
     if (py < RULER_LOOP) {
-      // bande de sélection : glisser crée/déplace la région, double-clic bascule la boucle
+      // Cette bande crée une plage directement, sans changer d'outil.
       const lp = KC.project.loop;
-      const inside = lp.out > lp.in && px >= X(lp.in) && px <= X(lp.out);
-      const nearIn = lp.out > lp.in && Math.abs(px - X(lp.in)) < 6, nearOut = lp.out > lp.in && Math.abs(px - X(lp.out)) < 6;
-      if (e.detail === 2) { KC.cmd.toggleLoop(); return; }
-      const pts = snapPoints(new Set());
-      const o = { ...lp };
+      const nearIn = lp.out > lp.in && Math.abs(px - X(lp.in)) < 7;
+      const nearOut = lp.out > lp.in && Math.abs(px - X(lp.out)) < 7;
+      if (e.detail === 2) {
+        const t = Math.max(0, TT(px));
+        const ev = KC.project.events.find(ev => P.kindOf(ev) === 'video' && t >= ev.start && t < ev.start + ev.length);
+        if (ev) { KC.project.loop = { in: ev.start, out: ev.start + ev.length }; KC.emit('loop'); C.playSelection(); }
+        return;
+      }
+      const resume = E.beginScrub();
+      const pts = snapPoints(new Set()), o = { ...lp };
+      const start = snapTime(Math.max(0, TT(px)), pts, e).t;
+      let moved = false;
+      E.seek(start);
       U.drag(e, (dx, dy, ev) => {
-        const t = snapTime(TT(ev.clientX - r.left), pts, ev);
+        if (!moved && Math.abs(dx) < 3) return;
+        moved = true;
+        const t = snapTime(Math.max(0, TT(ev.clientX - r.left)), pts, ev);
         T.snapLine = t.line;
-        if (nearIn) KC.project.loop.in = Math.min(t.t, o.out - P.frame());
+        if (nearIn) KC.project.loop.in = Math.max(0, Math.min(t.t, o.out - P.frame()));
         else if (nearOut) KC.project.loop.out = Math.max(t.t, o.in + P.frame());
-        else if (inside) { const d = P.snapFrame(dx / view().zoom); const len = o.out - o.in; KC.project.loop.in = Math.max(0, o.in + d); KC.project.loop.out = KC.project.loop.in + len; }
-        else { const s = snapTime(TT(px), pts, ev).t; KC.project.loop.in = Math.max(0, Math.min(s, t.t)); KC.project.loop.out = Math.max(s, t.t); }
+        else if (e.altKey && o.out > o.in && start > o.in && start < o.out) {
+          const len = o.out - o.in;
+          KC.project.loop.in = Math.max(0, o.in + P.snapFrame(dx / view().zoom));
+          KC.project.loop.out = KC.project.loop.in + len;
+        } else KC.project.loop = { in: Math.min(start, t.t), out: Math.max(start, t.t) };
+        E.seek(t.t);
         KC.emit('loop'); T.redraw();
-      }, () => { T.snapLine = null; T.redraw(); });
+      }, () => {
+        T.snapLine = null;
+        if (moved && KC.project.loop.out > KC.project.loop.in) {
+          KC.prefs.loop = true; KC.prefs.save(); KC.emit('prefs');
+          E.seek(KC.project.loop.in);
+          KC.markDirty();
+        }
+        E.endScrub(resume); T.redraw();
+      });
       return;
     }
     if (py < RULER_LOOP + RULER_MARK) {
@@ -789,11 +820,10 @@
   }
   function startScrub(e, surface) {
     const r = surface.getBoundingClientRect();
-    const wasPlaying = E.playing;
-    E.pause();
+    const wasPlaying = E.beginScrub();
     const seekAt = ev => E.seek(Math.max(0, TT(ev.clientX - r.left)));
     seekAt(e);
-    U.drag(e, (dx, dy, ev) => seekAt(ev), () => { if (wasPlaying) E.play(); });
+    U.drag(e, (dx, dy, ev) => seekAt(ev), () => E.endScrub(wasPlaying));
   }
 
   function markerAt(px, py) {
@@ -1146,6 +1176,9 @@
     if (c.querySelector('input')) return;
     const big = c.querySelector('.big'), small = c.querySelector('.small');
     big.textContent = U.fmtTime(E.time, P.fps());
+    const summary = [P.duration(), KC.project.settings.width, KC.project.settings.height, P.fps(), KC.prefs.timeFormat].join('|');
+    if (small.dataset.summary === summary) return;
+    small.dataset.summary = summary;
     small.innerHTML = '';
     small.append(h('span', { text: 'Durée ' + U.fmtTime(P.duration(), P.fps()) }), h('span', { text: Math.round(KC.project.settings.width) + '×' + Math.round(KC.project.settings.height) + ' · ' + U.fmtFps(P.fps()) + ' i/s' }));
   }
@@ -1185,11 +1218,14 @@
     b('next-frame', 'Image suivante (→)', () => E.step(1));
     b('to-end', 'Aller à la fin', () => E.seek(P.duration()));
     const seek = h('input#tp-seek', { type: 'range', min: 0, max: P.duration(), step: P.frame(), value: E.time, 'aria-label': 'Position de lecture', title: 'Glisser pour parcourir la vidéo' });
-    let resume = false;
     seek.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
-      resume = E.playing; E.pause();
-      U.drag(e, null, () => { if (resume) E.play(); resume = false; });
+      // Le déplacement est explicite : les rafraîchissements du slider ne perturbent pas le glissement natif.
+      e.preventDefault();
+      const resume = E.beginScrub(), rect = seek.getBoundingClientRect(), end = P.duration();
+      const seekAt = ev => E.seek(U.clamp((ev.clientX - rect.left - 8) / Math.max(1, rect.width - 16), 0, 1) * end);
+      seekAt(e);
+      U.drag(e, (dx, dy, ev) => seekAt(ev), () => E.endScrub(resume));
     });
     seek.addEventListener('input', () => E.seek(Number(seek.value)));
     tp.append(seek, h('span#tp-time'));
@@ -1206,6 +1242,8 @@
     b('play', 'Lire la sélection en boucle', () => KC.cmd.playSelection(), 'tp-selection', 'Lire la sélection');
     b('reset', 'Effacer la sélection temporelle', () => { KC.project.loop = { in: 0, out: 0 }; KC.emit('loop'); }, 'tp-clear');
     tp.append(h('span#tp-region-info'));
+    b('video', 'Ajouter une piste vidéo', () => C.addVideoTrack(), null, '+ Vidéo');
+    b('audio', 'Ajouter une piste audio', () => C.addAudioTrack(), null, '+ Audio');
     updateTransport();
   }
   function updateTransport() {
@@ -1214,10 +1252,10 @@
       const el = KC.$('#' + id); if (el) { el.classList.toggle('on', !!on); el.setAttribute('aria-pressed', String(!!on)); }
     }
     const p = KC.$('#tp-play');
-    if (p) { p.innerHTML = KC.icon(E.playing ? 'pause' : 'play'); p.append(h('span', { text: E.playing ? 'Pause' : 'Lire' })); p.setAttribute('aria-pressed', String(E.playing)); }
+    if (p && p.getAttribute('aria-pressed') !== String(E.playing)) { p.innerHTML = KC.icon(E.playing ? 'pause' : 'play'); p.append(h('span', { text: E.playing ? 'Pause' : 'Lire' })); p.setAttribute('aria-pressed', String(E.playing)); }
     for (const id of ['tp-selection', 'tp-clear']) { const el = KC.$('#' + id); if (el) el.disabled = !hasLoop; }
     const info = KC.$('#tp-region-info');
-    if (info) info.textContent = hasLoop ? 'Sélection : ' + U.fmtTime(lp.in, P.fps()) + ' → ' + U.fmtTime(lp.out, P.fps()) + ' · Durée ' + U.fmtTime(lp.out - lp.in, P.fps()) : 'Sélection : activez « Sélection » puis glissez sur la timeline, ou utilisez I et O.';
+    if (info) info.textContent = hasLoop ? 'Sélection : ' + U.fmtTime(lp.in, P.fps()) + ' → ' + U.fmtTime(lp.out, P.fps()) + ' · Durée ' + U.fmtTime(lp.out - lp.in, P.fps()) : 'Glissez dans la bande au-dessus des pistes pour sélectionner une boucle. Double-clic : boucle du clip.';
     const speed = KC.$('#tp-speed'); if (speed) speed.value = String(E.rate);
     updatePosition();
   }
@@ -1290,7 +1328,14 @@
     cv.addEventListener('pointerleave', () => { if (T.hover) { T.hover = null; T.redraw(); } });
     cv.addEventListener('contextmenu', e => e.preventDefault());
     cv.addEventListener('wheel', onWheel, { passive: false });
+    rcv.title = 'Bande du haut : sélectionner une boucle · Règle graduée : parcourir la vidéo · Alt+glisser : déplacer la sélection';
+    rcv.setAttribute('aria-label', 'Sélection temporelle au-dessus des pistes et règle de lecture');
     rcv.addEventListener('pointerdown', onRulerDown);
+    rcv.addEventListener('pointermove', e => {
+      const r = rcv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+      const lp = KC.project.loop, edge = lp.out > lp.in && (Math.abs(px - X(lp.in)) < 7 || Math.abs(px - X(lp.out)) < 7);
+      rcv.style.cursor = py < RULER_LOOP ? (edge ? 'ew-resize' : 'crosshair') : 'ew-resize';
+    });
     rcv.addEventListener('contextmenu', e => e.preventDefault());
     rcv.addEventListener('wheel', onWheel, { passive: false });
     wrap.addEventListener('dragover', onDragOver);

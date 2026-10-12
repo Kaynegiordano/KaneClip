@@ -291,7 +291,7 @@ svg.ic.fill { fill: currentColor; stroke: none; }
 
 /* ---------------------------------------------------------------- timeline */
 #timeline { flex: 1; min-height: 160px; display: flex; flex-direction: column; background: var(--tl-bg); }
-#tl-head { height: 54px; flex: none; display: flex; border-bottom: 1px solid var(--border); }
+#tl-head { height: 70px; flex: none; display: flex; border-bottom: 1px solid var(--border); }
 #tl-clock {
   width: var(--header-w); flex: none; background: var(--panel); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; justify-content: center; padding: 0 12px; position: relative;
@@ -318,7 +318,7 @@ body.theme-light #tl-clock .big { color: #2b7a13; }
 #transport .transport-sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
 #tp-seek { flex: 1; min-width: 100px; }
 #tp-time, #tp-region-info { font-family: var(--mono); font-size: 11px; color: var(--text-2); white-space: nowrap; }
-#tp-region-info { flex-basis: 100%; color: var(--muted); }
+#tp-region-info { flex: 1 1 65%; color: var(--muted); white-space: normal; }
 #transport select { padding: 3px; }
 #tl-hscroll { flex: 1; height: 12px; margin: 0 8px; position: relative; background: var(--panel-2); border-radius: 6px; }
 .thumb { position: absolute; background: var(--raised); border-radius: 6px; }
