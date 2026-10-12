@@ -1,6 +1,10 @@
-KaneClip 1.0.1
+KaneClip 1.0.2
 
-- Barre de lecture visible : lecture/pause, arrêt, début/fin, image par image, position, vitesse et son de l’aperçu.
-- Ajout de pistes vidéo et audio par clic droit partout sur la timeline, y compris sur les clips et les zones vides.
-- Outil de sélection temporelle, bornes I/O et lecture de la sélection en boucle.
-- Aperçu vidéo pendant le déplacement du curseur et actualisation de la dernière image demandée après des déplacements rapides.
+- Sélection directe dans une bande agrandie au-dessus des pistes : glisser pour créer une plage et activer la boucle, sans changer d’outil.
+- Poignées visibles, remplacement facile de la plage et double-clic pour lire le clip en boucle.
+- Aperçu pendant le glissement de la barre de position, de la règle et de la ligne blanche ; la ligne de lecture reste saisissable même avec l’outil Sélection actif.
+- Aperçu pendant la sélection d’une plage et conservation de la dernière image à la fin du projet.
+- Navigation plus légère : pas de décodage des clips inactifs pendant le glissement, actualisation des vignettes dans l’aperçu et moins de rafraîchissements de l’interface.
+- Boutons + Vidéo et + Audio pour ajouter rapidement une piste.
+
+Tests natifs Electron sur MP4/H.264, MKV/H.264 et WebM/VP9, y compris image visible avant relâchement du curseur.

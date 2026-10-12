@@ -1,7 +1,7 @@
 {
   "name": "kaneclip",
   "productName": "KaneClip",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "KaneClip — éditeur vidéo inspiré de Vegas Pro",
   "main": "main.js",
   "private": true,

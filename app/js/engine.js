@@ -3,7 +3,7 @@
 'use strict';
 (() => {
   const U = KC.util, P = KC.P, FX = KC.FX, M = KC.media;
-  const E = KC.engine = { time: 0, playing: false, rate: 1, playbackRate: 1, startTime: 0, needsDraw: true, levels: { L: 0, R: 0, peakL: 0, peakR: 0, clip: false }, masterMute: false };
+  const E = KC.engine = { time: 0, playing: false, scrubbing: false, rate: 1, playbackRate: 1, startTime: 0, needsDraw: true, levels: { L: 0, R: 0, peakL: 0, peakR: 0, clip: false }, masterMute: false };
 
   /* ------------------------------------------------------------ audio */
   let ac = null, master = null, analL = null, analR = null;
@@ -76,7 +76,7 @@
       // Si le pointeur a bougé pendant le décodage, chercher la dernière position.
       const current = KC.project && P.event(ev.id);
       if (!E.playing && current && slots.get(key)?.el === el && kind === 'v') {
-        const target = E.srcTime(current, U.clamp(E.time, current.start, current.start + current.length - 0.001));
+        const target = E.srcTime(current, U.clamp(E.previewTime(E.time), current.start, current.start + current.length - 0.001));
         if (Math.abs(el.currentTime - target) > 0.5 / P.fps()) el.currentTime = target;
       }
       E.needsDraw = true;
@@ -131,6 +131,7 @@
 
   /* ------------------------------------------------------------ synchronisation */
   function sync(t) {
+    t = E.previewTime(t);
     const p = KC.project;
     const now = performance.now();
     const fps = P.fps();
@@ -142,12 +143,12 @@
       const tr = P.track(ev.track); if (!tr) continue;
       const m = P.media(ev.media); if (!m || m.kind === 'image') continue;
       const kind = tr.kind === 'video' ? 'v' : 'a';
-      if (kind === 'v' && !m.hasVideo) continue;
+      if (kind === 'v' && (!m.hasVideo || ev.mute || tr.mute || (anySoloV && !tr.solo))) continue;
       if (kind === 'a' && !m.hasAudio) continue;
       const isActive = active(ev, t);
       // Préchargement : en lecture, ce qui arrive dans les 2 s ; à l'arrêt, ce qui est proche du curseur
       const soon = E.playing ? (ev.start > t && ev.start - t < 2) : (kind === 'v' && ev.start - t < 6 && ev.start + ev.length - t > -3);
-      if (!isActive && !soon) continue;
+      if (!isActive && (E.scrubbing || !soon)) continue;
       if (kind === 'a' && !(E.playing && E.rate > 0)) continue;   // l'audio ne joue qu'en lecture avant
       const s = slotFor(ev, kind);
       if (!s) continue;
@@ -323,6 +324,11 @@
   /* ------------------------------------------------------------ boucle principale */
   let lastFrameT = 0, playT0 = 0, playP0 = 0;
   E.loopOn = () => KC.prefs.loop && KC.project.loop.out > KC.project.loop.in + 1e-6;
+  // Au bout du projet, conserver la dernière image au lieu d'un cadre noir.
+  E.previewTime = t => {
+    const end = P.duration();
+    return !E.playing && end > 0 && Math.abs(t - end) < 1e-6 ? Math.max(0, end - P.frame()) : t;
+  };
   function tick(now) {
     requestAnimationFrame(tick);
     if (!KC.project) return;
@@ -339,10 +345,11 @@
       E.needsDraw = true;
       KC.emit('time', t);
     }
-    if (E.needsDraw || E.playing) {
-      sync(E.time);
-      if (KC.preview && KC.preview.draw) KC.preview.draw(E.time);
+    if (E.needsDraw || E.playing || E.scrubbing) {
+      const draw = E.needsDraw || E.playing;
       E.needsDraw = false;
+      sync(E.time);
+      if (draw && KC.preview && KC.preview.draw) KC.preview.draw(E.previewTime(E.time));
     }
     meters(now);
     lastFrameT = now;
@@ -350,11 +357,15 @@
   void lastFrameT;
   requestAnimationFrame(tick);
 
-  function meters() {
+  let lastMeter = -Infinity;
+  const meterData = new Float32Array(1024);
+  function meters(now = performance.now()) {
+    if (now - lastMeter < (E.playing ? 33 : 100)) return;
+    lastMeter = now;
     const lv = E.levels;
     let l = 0, r = 0;
     if (ac && E.playing) {
-      const d = new Float32Array(analL.fftSize);
+      const d = meterData;
       analL.getFloatTimeDomainData(d); for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > l) l = v; }
       analR.getFloatTimeDomainData(d); for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > r) r = v; }
     }
@@ -413,6 +424,15 @@
     KC.project.cursor = E.time;
     E.needsDraw = true;
     KC.emit('time', E.time);
+  };
+  E.beginScrub = () => {
+    const resume = E.playing;
+    E.pause(); E.scrubbing = true; E.needsDraw = true;
+    return resume;
+  };
+  E.endScrub = resume => {
+    E.scrubbing = false; E.needsDraw = true;
+    if (resume) E.play();
   };
   E.step = (n) => { if (E.playing) E.pause(); E.seek(P.snapFrame(E.time) + n / P.fps()); };
   E.redraw = () => { E.needsDraw = true; };

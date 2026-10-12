@@ -169,7 +169,7 @@
     if (!img) {
       img = new Image();
       img.crossOrigin = 'anonymous';   // sinon le canevas d'aperçu serait « contaminé » (clichés impossibles)
-      img.onload = () => { clearTimeout(thumbRedraw); thumbRedraw = setTimeout(() => KC.emit('redraw-timeline'), 30); };
+      img.onload = () => { KC.engine.redraw(); clearTimeout(thumbRedraw); thumbRedraw = setTimeout(() => KC.emit('redraw-timeline'), 30); };
       img.src = url;
       thumbCache.set(url, img);
       if (thumbCache.size > 4000) { const k = thumbCache.keys().next().value; thumbCache.delete(k); }
